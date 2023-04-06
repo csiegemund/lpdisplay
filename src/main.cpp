@@ -11,6 +11,11 @@
 #include <Wire.h>
 #endif
 
+// initializer for the u8g2 display library - see the u8g2 repo for details
+// there you'll find a lot more initializers for various displays
+// the params define the physical wiring of the selected display
+// adapt this to your board layout
+
 //U8G2_SSD1306_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 U8G2_SSD1309_128X64_NONAME0_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 0, /* dc=*/ 16, /* reset=*/ 15);  
 
@@ -18,21 +23,27 @@ U8G2_SSD1309_128X64_NONAME0_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 0, /* dc=*/ 16, /
 #define TEXT_LENGTH 50
 #define BUFFER_LENGTH CMD_LENGTH + 1 + TEXT_LENGTH + 2
 
+// fonts for top status line
 #define TOP_SMALL_FONT audiofont_5x8
 #define TOP_BIG_FONT   audiofont_6x12
 
+// fonts for the title information
 #define ARTIST_FONT    audiofont_5x8
 #define TITLE_FONT     audiofont_6x12
 #define ALBUM_FONT     audiofont_5x8
 
+// font for bottom status line
 #define BOTTOM_FONT    audiofont_5x8
 
+// font for the value & status icons in popup display
 #define ICON_FONT      audioicons_20x20
 
+// time to show pop-up messages for value changes (e.g. volume...) and status changes (e.g. mute)
 #define SHOW_VALUE     3000
-#define SHOW_ICON      1500
+#define SHOW_STATUS    1500
 
-
+// bit vector values for all values received by the linkplay device
+// this values will be stored together in a 16-bit value for easy update processing
 enum values {
   valNone     = 0x0000,
   valSource   = 0x0001,
@@ -52,7 +63,8 @@ enum values {
   valElapsed  = 0x4000
 };
 
-
+// bit vector values for all display areas used in the defined display layouts
+// this values will be stored together in a 16-bit value for easy display update processing
 enum areas {
   areaNone     = 0x0000,
   areaTopSmall = 0x0001,
@@ -70,8 +82,9 @@ enum areas {
   areaEmpty    = 0x8000   //draw nothing
 };
 
-uint16_t updValues = 0;
-uint16_t updAreas = 0;
+uint16_t updValues = 0; // bit field for updated values
+uint16_t updAreas = 0;  // bit field for display areas to be updated
+
 
 enum layout {layNoTitles, layTitles, laySetValue, laySetIcon};
 layout currentLayout = layNoTitles;
@@ -398,7 +411,7 @@ void setSettingIcon(char icon1, char icon2 = 0) {
     r_setting_icon[2] = char(0);
     updAreas |= areaSetIcon;
     setLayout(laySetIcon);
-    timeToLastLayout = millis() + SHOW_ICON;
+    timeToLastLayout = millis() + SHOW_STATUS;
 }
 
 boolean fillBuffer(char c) {
