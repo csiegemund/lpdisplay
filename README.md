@@ -11,5 +11,6 @@ You'll need a microcontroller with hardware UART, hardware SPI or hardware I2C i
 - ATTINY 3217
 - ATTINY 3226
 - ATTINY 3227
+- ARDUINO NANO EVERY
 
-The code is hard configured to use an SSD1309 OLED display with 128 x 64 pixels. As it use the famous [u8g2 library](https://github.com/olikraus/u8g2/wiki) you could easily port the code to almost any 128x64 display on the market...
+In platformio_overide.ini you can configure your used display + serial debug behaviour (if your controller supports more than one UART)
