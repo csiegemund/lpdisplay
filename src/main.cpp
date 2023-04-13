@@ -1,6 +1,5 @@
 
-#include <Arduino.h>
-#include <U8g2lib.h>
+#include <main.h>
 #include <my_fonts.h>
 #include <strtools.h>
 
@@ -11,13 +10,35 @@
 #include <Wire.h>
 #endif
 
+#define U8G2_OBJECT(O, I) U8G2_OBJ(O, I)
+#define U8G2_OBJ(O, I) U8G2_ ## O ## _1_ ## I 
+
+#if INTERFACE == I2C
+  U8G2_OBJECT(OLED, HW_I2C) u8g2(ROTATION, I2C_RS);  
+#elif INTERFACE == SPI_3W
+  U8G2_OBJECT(OLED, 3W_HW_SPI) u8g2(ROTATION, SPI_CS, SPI_RS);  
+#elif INTERFACE == SPI_4W
+  U8G2_OBJECT(OLED, 4W_HW_SPI) u8g2(ROTATION, SPI_CS, SPI_DC, SPI_RS); 
+#elif INTERFACE == NULLIF
+  U8G2_NULL u8g2(U8G2_R0);
+#endif
+
+
+
+
 // initializer for the u8g2 display library - see the u8g2 repo for details
 // there you'll find a lot more initializers for various displays
 // the params define the physical wiring of the selected display
 // adapt this to your board layout
 
-//U8G2_SSD1306_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
-U8G2_SSD1309_128X64_NONAME0_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 0, /* dc=*/ 16, /* reset=*/ 15);  
+// small & medium SSD1306 OLED at I2C
+//U8G2_SSD1306_128X64_NONAME_1_HW_I2C u8g3(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
+
+// big SSD1309 OLED at SPI
+//U8G2_SSD1309_128X64_NONAME0_1_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 0, /* dc=*/ 16, /* reset=*/ 15);  
+
+// big SSD1309 OLED at I2C
+//U8G2_SSD1309_128X64_NONAME2_1_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 
 #define CMD_LENGTH 3
 #define TEXT_LENGTH 50
@@ -85,10 +106,16 @@ enum areas {
 uint16_t updValues = 0; // bit field for updated values
 uint16_t updAreas = 0;  // bit field for display areas to be updated
 
-
+// define the screen layouts
 enum layout {layNoTitles, layTitles, laySetValue, laySetIcon};
 layout currentLayout = layNoTitles;
 
+layout lastLayout;
+unsigned long timeToLastLayout = 0;
+
+
+// define per row, which areas are using a particular row
+// the draw routine per row is called only if the area is defined here
 const uint16_t layoutRows[4][8] = {
   { //Layout NoTitles
   areaTopBig,
@@ -132,54 +159,75 @@ const uint16_t layoutRows[4][8] = {
   }
 };
 
+// actual areas which needed to be drawn
 uint16_t rowLayout[8];
+// next row to draw  - currentRow = 8 -> all rows drawn, do nothing
 uint8_t currentRow = 0;
 
-const char ellipse[2] = "\x85";
-
+// buffer which holds raw data from DATA_SERIAL interface
 char inBuffer[BUFFER_LENGTH];
 uint8_t posBuffer = 0;
 
 
+// variables which hold the data sent by the linkplay UART
+// title information (if available) (TIT, ALB, ART, VND)
 char title[TEXT_LENGTH] = "";
 char album[TEXT_LENGTH] = "";
 char artist[TEXT_LENGTH] = "";
 char vendor[TEXT_LENGTH] = "";
 
+// basic audio settings (VOL, TRE, BAS, BAL)
 int8_t volume = 0;
 int8_t treble = 0;
 int8_t bass = 0;
 int8_t balance = 0;
 
+// elaspsed time and duration of current song (ELP)
 uint32_t timeElapsed = 0;
 uint32_t timeTotal = 0;
+
+// millis counter when next elapsed time should be requested (0 = no request)
 unsigned long nextELP = 0;
 
-
+// value and related text info for the current audio source (SRC)
+// numeric value is the related icon char value also
 enum sourceEnum { SRC_UNKNOWN, BT, BTC, NET, NETC, USB, LINEIN, OPT, COAX };
 uint8_t source = SRC_UNKNOWN;
 const char* sourceName[] = { "UNKNOWN", "BLUETOOTH", "BLUETOOTH", "NETWORK", "NETWORK", "USB", "LINE-IN", "OPTICAL", "COAX" };
 const char* statusName[] = { "", "OFF", "ON", "OFF", "ON", "", "", "", "" };
 
+// status information (SYS, BTC, WWW)
 bool SysEnabled = false;
 bool BTConnected = false;
 bool NetConnected = false;
 
+// shuffle status (derived from LPM)
+// numeric value is the icon char value also
 enum shuffleEnum { SEQUENCE = 11, SHUFFLE };
 uint8_t shuffleMode = SEQUENCE;
 
+// repeat status (derived from LPM)
+// numeric value is the icon char value also
 enum repeatEnum { REPEATNONE = 14, REPEATALL, REPEATONE };
 uint8_t repeatMode = REPEATNONE;
 
+// play status (PLA)
+// numeric value is the icon character value also
 enum playEnum { PLA_UNKNOWN, PLAY = 17, PAUSE, STOP, PREV, NEXT };
 uint8_t playState = PLA_UNKNOWN;
 
+
+// channel status (CHN)
 enum channelEnum { LEFT, RIGHT, STEREO };
 uint8_t channelState = STEREO;
 
+// icon char values for speaker information
 enum speakerEnum { SPC_SMALL = 9, L_ON = 22, L_MUTE, L_OFF, R_ON, R_MUTE, R_OFF, SPC_L, SPC_R, VBS_OFF = 128, VBS_ON, TREBLE, BASS, BALANCE };
+// virtual bass status (VBS)
 uint8_t virtbassState = VBS_OFF;
 
+// mute status (PLA)
+// numeric value is the icon char value also
 enum muteEnum { MUTE_OFF = R_ON, MUTE_ON };
 uint8_t muteState = MUTE_OFF;
 
@@ -203,8 +251,6 @@ const char* channelName[] = {"LEFT", "RIGHT", "STEREO"};
 uint8_t r_setting;
 char r_setting_text[20] = "";
 char r_setting_icon[3] = "";
-layout lastLayout;
-unsigned long timeToLastLayout = 0;
 
 char r_bottom_left[20] = "";
 char r_bottom_center[20] = "";
@@ -218,10 +264,12 @@ char* sendLast = sendBuffer;
 unsigned long nextBufferCmdTime = 0;
 
 
+
 boolean sendBufferCmd() {
 
   if ((sendLast > sendBuffer) && (millis() >= nextBufferCmdTime)) {
-    Serial.print(sendBuffer);
+    SERIAL_DAT.print(sendBuffer);
+    debugOut(sendBuffer, '>');
     nextBufferCmdTime = millis() + 100;
     char *to , *from;
     for (to = sendBuffer, from = sendBuffer + strlen(sendBuffer) + 1; from < sendLast; to++, from++) {
@@ -347,9 +395,9 @@ void setLayout(layout newLayout) {
 
 boolean setSource(uint8_t newSource) {
   if (setValueUint(source, newSource, valSource)) {
-    strcopyext(artist, "", TEXT_LENGTH, Utf2Ansi, &updValues, valArtist);
-    strcopyext(title, "", TEXT_LENGTH, Utf2Ansi, &updValues, valTitle);
-    strcopyext(album, "", TEXT_LENGTH, Utf2Ansi, &updValues, valAlbum);
+    strcopyext(&u8g2, artist, "", TEXT_LENGTH, Utf2Ansi, &updValues, valArtist);
+    strcopyext(&u8g2, title, "", TEXT_LENGTH, Utf2Ansi, &updValues, valTitle);
+    strcopyext(&u8g2, album, "", TEXT_LENGTH, Utf2Ansi, &updValues, valAlbum);
     playState = PLA_UNKNOWN;
     timeElapsed = 0;
     timeTotal = 0;
@@ -377,7 +425,7 @@ void setSettingTitle(settingType setting, const char* valText, int8_t valNum = 0
     } else {
       itoa(valNum, cursor, 10);
     }
-    strcopyext(r_setting_text, text, 20, None, &updAreas, areaSetTitle);
+    strcopyext(&u8g2, r_setting_text, text, 20, None, &updAreas, areaSetTitle);
 }
 
 void setSettingSource() {
@@ -394,7 +442,7 @@ void setSettingSource() {
         strcpy(cursor, statusName[source]);
       }
     }
-    strcopyext(r_setting_text, text, 20, None, &updAreas, areaSetTitle);
+    strcopyext(&u8g2, r_setting_text, text, 20, None, &updAreas, areaSetTitle);
 }
 
 void setSettingScale(char icon) {
@@ -414,6 +462,7 @@ void setSettingIcon(char icon1, char icon2 = 0) {
     timeToLastLayout = millis() + SHOW_STATUS;
 }
 
+
 boolean fillBuffer(char c) {
 
   if (c == char(13)) {
@@ -424,6 +473,7 @@ boolean fillBuffer(char c) {
         inBuffer[posBuffer] = char(0);
       }
     }
+
     return (posBuffer > 0);
   } else {
     if ((uint8_t(c) >= 32) && (posBuffer < BUFFER_LENGTH - 1)) {
@@ -448,7 +498,7 @@ void parseBuffer() {
 
     if (strncmp(inCmd, "ELP", CMD_LENGTH) == 0) {
         if (playState = PLAY){
-          nextELP += 500; // default action: request next ELP in 0,5 sec
+          nextELP += 1000; // default action: request next ELP in 1 sec
         } else {
           nextELP = 0; // no ELP needed further more
         }
@@ -462,7 +512,9 @@ void parseBuffer() {
             uint32_t tmpTotal = 0;
 
             if (playState = PLAY){
-              nextELP = millis() + min(1000 - atol(strMilli), 500); //here ELP will start the next second -> then we want to query another ELP (but at least in 500 ms)
+              // here ELP will start the next second (+ 100 ms extra for the 'jitter')
+              // then we want to query another ELP 
+              nextELP = millis() + 1100 - atol(strMilli); 
             }
             *strMilli = char(0); //Shorten time string to full seconds
             tmpElapsed = atol(time);
@@ -482,16 +534,16 @@ void parseBuffer() {
           }
         }
     } else if (strncmp(inCmd, "TIT", CMD_LENGTH) == 0) {
-        strcopyext(title, inData, TEXT_LENGTH, Utf2Ansi, &updValues, valTitle);
+        strcopyext(&u8g2, title, inData, TEXT_LENGTH, Utf2Ansi, &updValues, valTitle);
         if (title[0] != char(0)) setLayout(layTitles);
     } else if (strncmp(inCmd, "ART", CMD_LENGTH) == 0) {
-        strcopyext(artist, inData, TEXT_LENGTH, Utf2Ansi, &updValues, valArtist);
+        strcopyext(&u8g2, artist, inData, TEXT_LENGTH, Utf2Ansi, &updValues, valArtist);
         if (artist[0] != char(0)) setLayout(layTitles);
     } else if (strncmp(inCmd, "ALB", CMD_LENGTH) == 0) {
-        strcopyext(album, inData, TEXT_LENGTH, Utf2Ansi, &updValues, valAlbum);
+        strcopyext(&u8g2, album, inData, TEXT_LENGTH, Utf2Ansi, &updValues, valAlbum);
         if (album[0] != char(0)) setLayout(layTitles);
     } else if (strncmp(inCmd, "VND", CMD_LENGTH) == 0) {
-        if (strcopyext(vendor, inData, TEXT_LENGTH, Utf2Ansi | ToUpper, &updValues, valSource)) {
+        if (strcopyext(&u8g2, vendor, inData, TEXT_LENGTH, Utf2Ansi | ToUpper, &updValues, valSource)) {
           playState = PLA_UNKNOWN;
           timeElapsed = 0;
           timeTotal = 0;
@@ -657,7 +709,7 @@ void parseBuffer() {
               break;
             case '1': 
               if (setValueUint(playState, PLAY, valPlay)) {
-                nextELP = 1; // no ELP needed further more
+                nextELP = 1; // force ELP query
               }
               break;
           }
@@ -674,6 +726,7 @@ void parseBuffer() {
   }
 }
 
+
 void processValues() {
 
   if ((updValues & ( valBass | valTreble | valVBass | valVolume | valChannel | valMute)) > 0) {
@@ -685,7 +738,7 @@ void processValues() {
         *cursor++ = char(virtbassState);
     }
     *cursor = NULL;
-    strcopyext(r_top_right_big, tmp, 20, None, &updAreas, areaTopBig);
+    strcopyext(&u8g2, r_top_right_big, tmp, 20, None, &updAreas, areaTopBig);
 
     cursor = tmp;
     if (bass != 0) {
@@ -706,7 +759,7 @@ void processValues() {
     cursor = formatValue(cursor, volume, 2);
     *cursor++ = char(getSpeakerIconRight());
     *cursor = NULL;
-    strcopyext(r_top_right_small, tmp, 20, None, &updAreas, areaTopSmall);
+    strcopyext(&u8g2, r_top_right_small, tmp, 20, None, &updAreas, areaTopSmall);
   }
 
   if ((updValues & valSource) > 0) {
@@ -719,10 +772,10 @@ void processValues() {
     }
 
     u8g2.setFont(TOP_SMALL_FONT);
-    strcopyext(r_top_left_small, tmp, 20, None, &updAreas, areaTopSmall, 128 - u8g2.getStrWidth(r_top_right_small) - 2);
+    strcopyext(&u8g2, r_top_left_small, tmp, 20, None, &updAreas, areaTopSmall, 128 - u8g2.getStrWidth(r_top_right_small) - 2);
 
     u8g2.setFont(TOP_BIG_FONT);
-    strcopyext(r_top_left_big, tmp, 20, None, &updAreas, areaTopBig, 128 - u8g2.getStrWidth(r_top_right_big) - 2);
+    strcopyext(&u8g2, r_top_left_big, tmp, 20, None, &updAreas, areaTopBig, 128 - u8g2.getStrWidth(r_top_right_big) - 2);
 
     setSettingSource();
     setSettingIcon(source);
@@ -740,17 +793,17 @@ void processValues() {
 
   if ((updValues & valArtist) > 0) {
     u8g2.setFont(ARTIST_FONT);
-    strcopyext(r_artist, artist, TEXT_LENGTH, None, &updAreas, areaArtist, u8g2.getDisplayWidth());
+    strcopyext(&u8g2, r_artist, artist, TEXT_LENGTH, None, &updAreas, areaArtist, u8g2.getDisplayWidth());
   }
 
   if ((updValues & valTitle) > 0) {
     u8g2.setFont(TITLE_FONT);
-    strcopyext(r_title_1, title, TEXT_LENGTH, None, &updAreas, areaTitle, u8g2.getDisplayWidth(), &r_title_2, "\x85", 164); //, dbg );
+    strcopyext(&u8g2, r_title_1, title, TEXT_LENGTH, None, &updAreas, areaTitle, u8g2.getDisplayWidth(), &r_title_2, "\x85", 164); //, dbg );
   }
   
   if ((updValues & valAlbum) > 0) {
     u8g2.setFont(ALBUM_FONT); 
-    strcopyext(r_album, album, TEXT_LENGTH, None, &updAreas, areaAlbum, u8g2.getDisplayWidth());
+    strcopyext(&u8g2, r_album, album, TEXT_LENGTH, None, &updAreas, areaAlbum, u8g2.getDisplayWidth());
   }
 
   if (r_setting != SRC) {
@@ -817,7 +870,7 @@ void processValues() {
     } else {
       *cursor = char(0);
     }
-    strcopyext(r_bottom_left, tmp, 20, None, &updAreas, areaElapsed);
+    strcopyext(&u8g2, r_bottom_left, tmp, 20, None, &updAreas, areaElapsed);
 
     if ((timeElapsed != 0) && (timeTotal == 0)) {
       formatTime(tmp, timeElapsed);
@@ -828,14 +881,14 @@ void processValues() {
       //display switched from title view to radio view or vice versa
       updAreas |= areaTitle; //redraw title area
     }
-    strcopyext(r_bottom_center, tmp, 20, None, &updAreas, areaElapsed);
+    strcopyext(&u8g2, r_bottom_center, tmp, 20, None, &updAreas, areaElapsed);
 
     if ((timeElapsed != 0) && (timeTotal != 0)) {
       formatTime(tmp, timeTotal);
     } else {
       tmp[0] = char(0);
     }
-    strcopyext(r_bottom_right, tmp, 20, None, &updAreas, areaElapsed);
+    strcopyext(&u8g2, r_bottom_right, tmp, 20, None, &updAreas, areaElapsed);
 
     if ((updAreas & areaElapsed) > 0) {
       //some time data has changed -> recalc slider
@@ -856,21 +909,21 @@ void drawRow(uint16_t rowLayout) {
   if ((rowLayout & areaTopSmall ) > 0) {
     //draw small top row
     u8g2.setFont(TOP_SMALL_FONT);
-    drawStrAligned(10, r_top_left_small, alnLeft);
-    drawStrAligned(10, r_top_right_small, alnRight);
+    drawStrAligned(&u8g2, 10, r_top_left_small, alnLeft);
+    drawStrAligned(&u8g2, 10, r_top_right_small, alnRight);
     u8g2.drawHLine(0, 13, 128);
   }
   if ((rowLayout & areaTopBig ) > 0) {
     //draw big top row
     u8g2.setFont(TOP_BIG_FONT);
-    drawStrAligned(11, r_top_left_big, alnLeft);
-    drawStrAligned(11, r_top_right_big, alnRight);
+    drawStrAligned(&u8g2, 11, r_top_left_big, alnLeft);
+    drawStrAligned(&u8g2, 11, r_top_right_big, alnRight);
     u8g2.drawHLine(0, 14, 128);
   }
   if ((rowLayout & areaArtist) > 0) {
     //draw artist
     u8g2.setFont(ARTIST_FONT); 
-    drawStrAligned(21, r_artist, alnLeft);
+    drawStrAligned(&u8g2, 21, r_artist, alnLeft);
   }
   if ((rowLayout & areaTitle) > 0) {
     //draw title
@@ -881,22 +934,22 @@ void drawRow(uint16_t rowLayout) {
       aln = alnCenter;
     }
     if (*r_title_2 == char(0)) {
-      drawStrAligned(37, r_title_1, aln);
+      drawStrAligned(&u8g2, 37, r_title_1, aln);
     } else {
-      drawStrAligned(32, r_title_1, aln);
-      drawStrAligned(43, r_title_2, aln);
+      drawStrAligned(&u8g2, 32, r_title_1, aln);
+      drawStrAligned(&u8g2, 43, r_title_2, aln);
     }
   }
   if ((rowLayout & areaAlbum) > 0) {
     //draw album
     u8g2.setFont(ALBUM_FONT);
-    drawStrAligned(52, r_album);
+    drawStrAligned(&u8g2, 52, r_album);
   }
   if ((rowLayout & areaVolume) > 0) {
     //draw volume
     u8g2.setFont(ICON_FONT);
     u8g2.drawGlyph(14, 30, getSpeakerIconLeft());
-    drawScale(40, 28, 3, 5, 10, 0, (volume + 5) / 10 - 1, 1, 1);
+    drawScale(&u8g2, 40, 28, 3, 5, 10, 0, (volume + 5) / 10 - 1, 1, 1);
     u8g2.drawGlyph(92, 30, getSpeakerIconRight());
   }
   if ((rowLayout & areaBassTreb) > 0) {
@@ -904,54 +957,53 @@ void drawRow(uint16_t rowLayout) {
     u8g2.setFont(ICON_FONT);
     u8g2.drawGlyph(3, 46, BASS);
     if (bass < 0) {
-      drawScale(21, 42, 2, 4, 10, 5 + (bass - 1) / 2, 5, ((bass - 1) / 2) * 2 - 1, 2);
+      drawScale(&u8g2, 21, 42, 2, 4, 10, 5 + (bass - 1) / 2, 5, ((bass - 1) / 2) * 2 - 1, 2);
     } else {
-      drawScale(21, 42, 2, 4, 10, 5, 4 + (bass + 1) / 2, 2, 2);
+      drawScale(&u8g2, 21, 42, 2, 4, 10, 5, 4 + (bass + 1) / 2, 2, 2);
     }
     u8g2.drawGlyph(68, 46, TREBLE);
     if (treble < 0) {
-      drawScale(84, 42, 2, 4, 10, 5 + (treble - 1) / 2, 5, ((treble - 1) / 2) * 2 - 1, 2);
+      drawScale(&u8g2, 84, 42, 2, 4, 10, 5 + (treble - 1) / 2, 5, ((treble - 1) / 2) * 2 - 1, 2);
     } else {
-      drawScale(84, 42, 2, 4, 10, 5, 4 + (treble + 1) / 2, 2, 2);
+      drawScale(&u8g2, 84, 42, 2, 4, 10, 5, 4 + (treble + 1) / 2, 2, 2);
     }
   }
   if ((rowLayout & areaSetTitle) > 0) {
     //draw setting text
     u8g2.setFont(TOP_BIG_FONT);
-    drawStrAligned(9, r_setting_text, alnCenter);
+    drawStrAligned(&u8g2, 9, r_setting_text, alnCenter);
   }
   if ((rowLayout & areaSetScale) > 0) {
     //draw setting scale
     u8g2.setFont(ICON_FONT);
-    drawStrAligned(34, r_setting_icon, alnLeft);
+    drawStrAligned(&u8g2, 34, r_setting_icon, alnLeft);
     switch (r_setting)
     {
       case VOL:
-        drawScale(24, 51, 3, 5, 20, 0, (volume + 2) / 5 - 1, 2, 2);
+        drawScale(&u8g2, 24, 51, 3, 5, 20, 0, (volume + 2) / 5 - 1, 2, 2);
         break;
       case BAS:
         if (bass < 0) {
-          drawScale(24, 31, 3, 5, 20, 10 + bass, 9, bass * 2 - 1, 2);
+          drawScale(&u8g2, 24, 31, 3, 5, 20, 10 + bass, 9, bass * 2 - 1, 2);
         } else {
-          drawScale(24, 31, 3, 5, 20, 10, 9 + bass, 2, 2);
+          drawScale(&u8g2, 24, 31, 3, 5, 20, 10, 9 + bass, 2, 2);
         }
         break;
       case TRE:
         if (treble < 0) {
-          drawScale(24, 31, 3, 5, 20, 10 + treble, 9, treble * 2 - 1, 2);
+          drawScale(&u8g2, 24, 31, 3, 5, 20, 10 + treble, 9, treble * 2 - 1, 2);
         } else {
-          drawScale(24, 31, 3, 5, 20, 10, 9 + treble, 2, 2);
+          drawScale(&u8g2, 24, 31, 3, 5, 20, 10, 9 + treble, 2, 2);
         }
         break;
       case BAL:
-        /* code */
         break;
     }
   }
   if ((rowLayout & areaSetIcon) > 0) {
     //draw setting icon
     u8g2.setFont(ICON_FONT);
-    drawStrAligned(34, r_setting_icon, alnCenter);
+    drawStrAligned(&u8g2, 34, r_setting_icon, alnCenter);
   }
   if ((rowLayout & areaBotLine) > 0) {
     //draw bottom line
@@ -960,32 +1012,38 @@ void drawRow(uint16_t rowLayout) {
   if ((rowLayout & areaElapsed) > 0) {
     //draw bottom status row
     u8g2.setFont(BOTTOM_FONT);
-    drawStrAligned(63, r_bottom_left, alnLeft);
+    drawStrAligned(&u8g2, 63, r_bottom_left, alnLeft);
     if (r_bottom_SliderW != 0xff) {
       u8g2.drawRBox(r_bottom_SliderX1 - 3, 57, r_bottom_SliderW + 6, 7, 3);
     } else {
-      drawStrAligned(63, r_bottom_center, alnCenter);
+      drawStrAligned(&u8g2, 63, r_bottom_center, alnCenter);
     }
-    drawStrAligned(63, r_bottom_right, alnRight);
+    drawStrAligned(&u8g2, 63, r_bottom_right, alnRight);
   }
 }
 
+
 void setup(void) {
  
-  Serial.begin(115200);				// Start reading from Serial communication interface
+  #ifdef SERIAL_DBG
+    SERIAL_DBG.begin(115200);				// Start writing to DBG_SERIAL communication interface
+  #endif
+  SERIAL_DAT.begin(115200);				// Start reading from DATA_SERIAL communication interface
 
+  debugOut("Init start");
   u8g2.initDisplay();
   u8g2.clearDisplay();
   u8g2.setPowerSave(0);
-
   u8g2.setFontMode(1);
+  debugOut("Init finished");
 }
 
 void loop(void) {
 
-  if (Serial.available() > 0) {
-      while (Serial.available() > 0) {
-        if (fillBuffer(Serial.read())) {
+  if (SERIAL_DAT.available() > 0) {
+      while (SERIAL_DAT.available() > 0) {
+        if (fillBuffer(SERIAL_DAT.read())) {
+          debugOut(inBuffer, '<');
           parseBuffer();
           resetBuffer();
           sendBufferCmd();
@@ -995,10 +1053,13 @@ void loop(void) {
       //action is done in sendBufferCmd
   } else if ((nextELP > 0) && (millis() >= nextELP)) {  //We want an ELP update and waiting time has been reached
       addBufferCmd("ELP;");  //request ELP update
-      nextELP += 500; //next ELP request in 500 ms
+      //debugOut("nextELP", '#');
+      if (playState == PLAY) nextELP += 1000; //next ELP request in 1s if no answer to this request
   } else if (updValues > 0) {
       processValues();
       updValues = 0;
+
+
   } else if (updAreas > 0) {
       for (uint8_t row = 0; row < 8; row++) {
         if ((updAreas & layoutRows[currentLayout][row]) > 0) {
@@ -1009,6 +1070,7 @@ void loop(void) {
       currentRow = 0;
   } 
   else if (currentRow < 8) {
+      if (currentRow == 0) debugOut("Start Screen update");
       if (rowLayout[currentRow] > 0) {
         u8g2.setBufferCurrTileRow(currentRow); 
         u8g2.clearBuffer();
@@ -1017,10 +1079,12 @@ void loop(void) {
         rowLayout[currentRow] = 0;
       }
       currentRow++;
+      if (currentRow == 8) debugOut("Finish Screen update");
   } else if ((timeToLastLayout > 0) && (millis() >= timeToLastLayout)) {  //switch back to normal layout
       setLayout(lastLayout);
       timeToLastLayout = 0; //done
       r_setting = NONE;
+  
   }
 }
    

@@ -1,15 +1,15 @@
 #include <strtools.h>
 
-u8g2_uint_t getAreaWidth(char* strFrom, char* strTo) {
+u8g2_uint_t getAreaWidth(U8G2* u8g2, char* strFrom, char* strTo) {
   
   char tmp =  *strTo;
   *strTo = char(0);
-  u8g2_uint_t curLen = u8g2.getStrWidth(strFrom);
+  u8g2_uint_t curLen = u8g2->getStrWidth(strFrom);
   *strTo = tmp;
   return curLen;
 }
 
-boolean strcopyext(char* dest, const char* src, uint8_t maxlength, uint8_t flags = None, uint16_t *chgFlags = NULL, uint16_t fieldFlag = 0, u8g2_uint_t maxWidth = 0, char** dest2 = NULL, char* endMarker = "\x85", char replace = char(164))
+boolean strcopyext(U8G2* u8g2, char* dest, const char* src, uint8_t maxlength, uint8_t flags = None, uint16_t *chgFlags = NULL, uint16_t fieldFlag = 0, u8g2_uint_t maxWidth = 0, char** dest2 = NULL, const char* endMarker = ellipse, char replace = char(164))
 {
   boolean docopy = false; 
   boolean dest2used = (dest2 == NULL);  //if dest2 is not requested we take it as used
@@ -18,7 +18,7 @@ boolean strcopyext(char* dest, const char* src, uint8_t maxlength, uint8_t flags
   char* cursor = dest;
   char* cur_row = dest;
 
-  u8g2_uint_t endMarkerWith = u8g2.getStrWidth(endMarker) + 1;
+  u8g2_uint_t endMarkerWith = u8g2->getStrWidth(endMarker) + 1;
   if (replace == 0) replace = 0x7f; // marker for skip char
   
 
@@ -89,7 +89,7 @@ boolean strcopyext(char* dest, const char* src, uint8_t maxlength, uint8_t flags
           }
       }
       if ((maxWidth > 0) && ((c == 32) || (c == 0))) {
-        if (getAreaWidth(cur_row, cursor) <= (maxWidth - (dest2used ? endMarkerWith : 0))) {
+        if (getAreaWidth(u8g2, cur_row, cursor) <= (maxWidth - (dest2used ? endMarkerWith : 0))) {
           last_spc = cursor;
         } else if (!dest2used) {
           if (*last_spc != char(0)) {
@@ -132,40 +132,45 @@ boolean strcopyext(char* dest, const char* src, uint8_t maxlength, uint8_t flags
   return (docopy);
 }
 
-void drawStrAligned(u8g2_int_t y, const char *s, alignment a = alnLeft, u8g2_int_t x = 0, u8g2_int_t w = 0xff) {
+void drawStrAligned(U8G2* u8g2, u8g2_int_t y, const char *s, alignment a = alnLeft, u8g2_int_t x = 0, u8g2_int_t w = 0xff) {
 
-  if (w==0xff) {w = u8g2.getDisplayWidth() - x;}
+  if (w==0xff) {w = u8g2->getDisplayWidth() - x;}
   switch (a) {
     case alnLeft:
-      u8g2.drawStr(x, y, s);
+      u8g2->drawStr(x, y, s);
       break;
     case alnCenter:
-      u8g2.drawStr(x + (w - u8g2.getStrWidth(s)) / 2, y, s);
+      u8g2->drawStr(x + (w - u8g2->getStrWidth(s)) / 2, y, s);
       break;
     case alnRight:
-      u8g2.drawStr(x + w - u8g2.getStrWidth(s), y, s);
+      u8g2->drawStr(x + w - u8g2->getStrWidth(s), y, s);
       break;
   }
 }
 
-void drawScale(u8g2_int_t x, u8g2_int_t y, uint8_t barWidth, uint8_t stepWidth, uint8_t barCount, int8_t barStart, int8_t barEnd, int8_t valueStart, int8_t valueDelta) {
+void drawScale(U8G2* u8g2, u8g2_int_t x, u8g2_int_t y, uint8_t barWidth, uint8_t stepWidth, uint8_t barCount, int8_t barStart, int8_t barEnd, int8_t valueStart, int8_t valueDelta) {
 
   for (uint8_t i = 0; i < barCount; i++, x+= stepWidth) {
-    u8g2.drawHLine(x, y, barWidth);
+    u8g2->drawHLine(x, y, barWidth);
     if ((i >= barStart) && (i <= barEnd)) {
       if (valueStart > 0) {
-        u8g2.drawBox(x, y - valueStart, barWidth, valueStart);
+        u8g2->drawBox(x, y - valueStart, barWidth, valueStart);
       } else {
-        u8g2.drawBox(x, y, barWidth, -valueStart);
+        u8g2->drawBox(x, y, barWidth, -valueStart);
       }
       valueStart += valueDelta;
     }
   }
 }
 
-char* formatTime(char* strTime, uint32_t time) {
+char* formatTime(char* strTime, unsigned long time, bool withmillis = false) {
   uint8_t seconds, minutes, hours;
+  uint16_t milliseconds = 0;
 
+  if (withmillis) {
+    milliseconds = time % 1000;
+    time = time / 1000;
+  }
   seconds = time % 60;
   time = time / 60;
   minutes = time % 60;
@@ -185,6 +190,12 @@ char* formatTime(char* strTime, uint32_t time) {
   *strTime++ = ':';
   *strTime++ = char('0' + (seconds / 10));
   *strTime++ = char('0' + (seconds % 10));
+  if (withmillis) {
+    *strTime++ = '.';
+    *strTime++ = char('0' + (milliseconds / 100));
+    *strTime++ = char('0' + (milliseconds % 100) / 10);
+    *strTime++ = char('0' + (milliseconds % 10));
+  }
   *strTime = char(0);
   return (strTime);
 }
@@ -220,5 +231,26 @@ char* formatValue(char* strValue, int8_t value, uint8_t maxdigits) {
   return (strValue);
 }
   
-
+void debugOut(const char* message, const char msgtype = '!', const int* value = NULL) {
+#ifdef SERIAL_DBG
+  #ifdef DEBUG_SERIAL
+    if ((strchr(DEBUG_SERIAL, '*') != NULL) || (strchr(DEBUG_SERIAL, msgtype) != NULL)) {
+      char prefix[15];
+      char* cursor = prefix;
+      cursor = formatTime(cursor, millis(), true);
+      *cursor++ = ' ';
+      *cursor++ = msgtype;
+      *cursor++ = ' ';
+      *cursor = char(0);
+      SERIAL_DBG.print(prefix);
+      SERIAL_DBG.print(message);
+      if (value != NULL) {
+        SERIAL_DBG.print(": ");
+        SERIAL_DBG.print(*value);
+      }
+      SERIAL_DBG.println();
+    }
+  #endif
+#endif
+}
 
