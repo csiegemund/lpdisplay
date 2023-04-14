@@ -26,16 +26,21 @@
 #define SPI_3W 2
 #define SPI_4W 3
 
-#ifndef OLED
-  #define OLED SSD1309_128X64_NONAME2
+#ifndef DISP_CONTROLLER 
+  #define DISP_CONTROLLER SSD1306
+  #define DISP_BRAND NONAME
 #endif
 
-#ifndef INTERFACE
-  #define INTERFACE I2C
+#ifndef DISP_RESOLUTION
+  #define DISP_RESOLUTION 128X64
 #endif
 
-#ifndef ROTATION
-  #define ROTATION U8G2_R0
+#ifndef DISP_INTERFACE
+  #define DISP_INTERFACE I2C
+#endif
+
+#ifndef DISP_ROTATION
+  #define DISP_ROTATION U8G2_R0
 #endif
 
 #ifndef SPI_CS
