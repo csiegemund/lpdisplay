@@ -10,19 +10,33 @@
 #include <Wire.h>
 #endif
 
-#define U8G2_OBJECT(O, I) U8G2_OBJ(O, I)
-#define U8G2_OBJ(O, I) U8G2_ ## O ## _1_ ## I 
+#define U8G2_OBJECT(C, R, I) U8G2_OBJ(C, R, I)
+#define U8G2_OBJ(C, R, I) U8G2_ ## C ## _ ## R ## _1_ ## I 
 
-#if INTERFACE == I2C
-  U8G2_OBJECT(OLED, HW_I2C) u8g2(ROTATION, I2C_RS);  
-#elif INTERFACE == SPI_3W
-  U8G2_OBJECT(OLED, 3W_HW_SPI) u8g2(ROTATION, SPI_CS, SPI_RS);  
-#elif INTERFACE == SPI_4W
-  U8G2_OBJECT(OLED, 4W_HW_SPI) u8g2(ROTATION, SPI_CS, SPI_DC, SPI_RS); 
-#elif INTERFACE == NULLIF
-  U8G2_NULL u8g2(U8G2_R0);
+#define U8G2_OBJECT_B(C, R, B, I) U8G2_OBJ_B(C, R, B, I)
+#define U8G2_OBJ_B(C, R, B, I) U8G2_ ## C ## _ ## R ## _ ## B ## _1_ ## I 
+
+#ifdef DISP_BRAND
+    #if DISP_INTERFACE == I2C
+      U8G2_OBJECT_B(DISP_CONTROLLER, DISP_RESOLUTION, DISP_BRAND, HW_I2C) u8g2(DISP_ROTATION, I2C_RS);  
+    #elif DISP_INTERFACE == SPI_3W
+      U8G2_OBJECT_B(DISP_CONTROLLER, DISP_RESOLUTION, DISP_BRAND, HW_I2C) u8g2(DISP_ROTATION, SPI_CS, SPI_RS);  
+    #elif DISP_INTERFACE == SPI_4W
+      U8G2_OBJECT_B(DISP_CONTROLLER, DISP_RESOLUTION, DISP_BRAND, HW_I2C) u8g2(DISP_ROTATION, SPI_CS, SPI_DC, SPI_RS); 
+    #elif DISP_INTERFACE == NULLIF
+      U8G2_NULL u8g2(U8G2_R0);
+    #endif
+#else
+    #if DISP_INTERFACE == I2C
+      U8G2_OBJECT(DISP_CONTROLLER, DISP_RESOLUTION, HW_I2C) u8g2(DISP_ROTATION, I2C_RS);  
+    #elif DISP_INTERFACE == SPI_3W
+      U8G2_OBJECT(DISP_CONTROLLER, DISP_RESOLUTION, HW_I2C) u8g2(DISP_ROTATION, SPI_CS, SPI_RS);  
+    #elif DISP_INTERFACE == SPI_4W
+      U8G2_OBJECT(DISP_CONTROLLER, DISP_RESOLUTION, HW_I2C) u8g2(DISP_ROTATION, SPI_CS, SPI_DC, SPI_RS); 
+    #elif DISP_INTERFACE == NULLIF
+      U8G2_NULL u8g2(U8G2_R0);
+    #endif
 #endif
-
 
 
 
@@ -259,7 +273,7 @@ u8g2_uint_t r_bottom_SliderX1 = 0;
 u8g2_uint_t r_bottom_SliderX2 = 0;
 u8g2_uint_t r_bottom_SliderW = 0xff;
 
-char sendBuffer[25];
+char sendBuffer[50];
 char* sendLast = sendBuffer;
 unsigned long nextBufferCmdTime = 0;
 
@@ -636,12 +650,18 @@ void parseBuffer() {
         };
     } else if (strncmp(inCmd, "BAL", CMD_LENGTH) == 0) {
         setValueInt(balance, atol(inData), valBalance);
+    } else if (strncmp(inCmd, "LED", CMD_LENGTH) == 0) {
+        switch (inData[0]) {
+          case '0': u8g2.setContrast(25); break;
+          case '1': u8g2.setContrast(255); break;
+        }
     } else if (strncmp(inCmd, "SYS", CMD_LENGTH) == 0) {
         if (strcmp(inData, "ON") == 0) {
           setValueBool(SysEnabled, true);
           addBufferCmd("STA;");
           addBufferCmd("LPM;");
           addBufferCmd("VBS;");
+          addBufferCmd("LED;");
           updAreas = 0xffff;  //force all areas to be drawn on screen
         } else if (strcmp(inData, "STANDBY") == 0) {
           setValueBool(SysEnabled, false);
@@ -1070,16 +1090,24 @@ void loop(void) {
       currentRow = 0;
   } 
   else if (currentRow < 8) {
-      if (currentRow == 0) debugOut("Start Screen update");
-      if (rowLayout[currentRow] > 0) {
-        u8g2.setBufferCurrTileRow(currentRow); 
-        u8g2.clearBuffer();
-        drawRow(rowLayout[currentRow]);
-        u8g2.sendBuffer();
-        rowLayout[currentRow] = 0;
+      if (currentRow == 0) debugOut("Start Screen update", '#');
+      if((DISP_ROTATION==U8G2_R0) || (DISP_ROTATION==U8G2_R2)) {
+          if (rowLayout[currentRow] > 0) {
+            u8g2.setBufferCurrTileRow((DISP_ROTATION==U8G2_R0)?currentRow:u8g2.getDisplayHeight()/8-currentRow-1); 
+            u8g2.clearBuffer();
+            drawRow(rowLayout[currentRow]);
+            u8g2.sendBuffer();
+            rowLayout[currentRow] = 0;
+          }
+      } else {
+          u8g2.setBufferCurrTileRow(currentRow); 
+          u8g2.clearBuffer();
+          drawRow(0xffff);
+          u8g2.sendBuffer();
+          rowLayout[currentRow] = 0;
       }
       currentRow++;
-      if (currentRow == 8) debugOut("Finish Screen update");
+      if (currentRow == 8) debugOut("Finish Screen update", '#');
   } else if ((timeToLastLayout > 0) && (millis() >= timeToLastLayout)) {  //switch back to normal layout
       setLayout(lastLayout);
       timeToLastLayout = 0; //done
