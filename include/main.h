@@ -21,7 +21,7 @@
     #undef  SERIAL_DBG
 #endif
 
-#define NULLIF 0
+#define NO_IF  0
 #define I2C    1
 #define SPI_3W 2
 #define SPI_4W 3
