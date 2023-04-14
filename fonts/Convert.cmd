@@ -1,5 +1,4 @@
-SET BDFCONV=%USERPROFILE%\OneDrive\E-Projekte\Tools\bdfconv.exe
-CD %USERPROFILE%\OneDrive\Dokumente\PlatformIO\Projects\TestPIO\fonts
+SET BDFCONV=..\..\Tools\bdfconv.exe
 
 %BDFCONV% -f 1 -m"0-126,128-134,160-255" -n audiofont_5x8 -o audiofont_5x8.c audiofont_5x8.bdf
 
