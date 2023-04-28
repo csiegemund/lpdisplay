@@ -25,3 +25,6 @@ In platformio_overide.ini you can configure your used display + serial debug beh
 * The upload_port of a Arduino board is searched automatically
 * Select the arrow button in the blue bottom status bar (PlatformIO: Upload) to compile and upload the firmware. During the compilation, all required libraries are downloaded automatically.
 * Under Linux, if the upload fails with error messages "Could not open /dev/ttyUSB0, the port doesn't exist", you can check via ```ls -la /dev/tty*``` to which group your port belongs to, and then add your user this group via ```sudo adduser <yourusername> dialout``` (if you are using ```arch-linux``` use: ```sudo gpasswd -a <yourusername> uucp```, this method requires a logout/login of the affected user).
+
+### Wiring (Arduino Nano Every with I2C display)
+<img src="https://github.com/csiegemund/lpdisplay/blob/master/docs/Wiring%20I2C_Steckplatine.svg" alt="Arduino Nano Every with I2C display" width="600" height="400">
