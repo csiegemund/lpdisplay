@@ -30,4 +30,4 @@ In platformio_overide.ini you can configure your used display + serial debug beh
 <img src="https://github.com/csiegemund/lpdisplay/blob/master/docs/Wiring%20I2C_Steckplatine.svg" alt="Arduino Nano Every with I2C display" width="600" height="400">
 
 ### Wiring (Arduino Nano Every with SPI display)
-<img src="https://github.com/csiegemund/lpdisplay/blob/master/docs/Wiring%20SPI_Steckplatine.svg" alt="Arduino Nano Every with SPI display" width="600" height="400">
+<img src="https://github.com/csiegemund/lpdisplay/blob/master/docs/Wiring%20SPI_Steckplatine.svg" alt="Arduino Nano Every with SPI display" width="600" height="600">
